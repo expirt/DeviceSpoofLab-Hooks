@@ -1,3 +1,4 @@
+java
 package com.devicespooflab.hooks.hooks;
 
 import com.devicespooflab.hooks.utils.ConfigManager;
@@ -23,8 +24,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getIMEI();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -35,8 +35,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getIMEI();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -47,8 +46,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getIMEI();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -59,8 +57,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getIMEI();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -71,8 +68,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getMEID();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -83,8 +79,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getMEID();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -95,8 +90,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getIMSI();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -107,8 +101,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getIMSI();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -119,8 +112,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getICCID();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -131,8 +123,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getICCID();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -143,8 +134,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getPhoneNumber();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -155,23 +145,18 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String v = ConfigManager.getPhoneNumber();
-                            if (v != null) param.setResult(v);
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
         }
 
-        // Hook network operator methods (MCC/MNC)
         try {
             XposedHelpers.findAndHookMethod(telephonyManager, "getNetworkOperator",
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String mccMnc = ConfigManager.getSystemProperty("gsm.operator.numeric", null);
-                            if (mccMnc != null) {
-                                param.setResult(mccMnc);
-                            }
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -182,10 +167,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String operatorName = ConfigManager.getSystemProperty("gsm.operator.alpha", null);
-                            if (operatorName != null) {
-                                param.setResult(operatorName);
-                            }
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -196,10 +178,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String simMccMnc = ConfigManager.getSystemProperty("gsm.sim.operator.numeric", null);
-                            if (simMccMnc != null) {
-                                param.setResult(simMccMnc);
-                            }
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -210,10 +189,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String simOperatorName = ConfigManager.getSystemProperty("gsm.sim.operator.alpha", null);
-                            if (simOperatorName != null) {
-                                param.setResult(simOperatorName);
-                            }
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -224,10 +200,7 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String simCountry = ConfigManager.getSystemProperty("gsm.sim.operator.iso-country", null);
-                            if (simCountry != null) {
-                                param.setResult(simCountry);
-                            }
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
@@ -238,25 +211,19 @@ public class TelephonyHooks {
                     new XC_MethodHook() {
                         @Override
                         protected void afterHookedMethod(MethodHookParam param) {
-                            String networkCountry = ConfigManager.getSystemProperty("gsm.operator.iso-country", null);
-                            if (networkCountry != null) {
-                                param.setResult(networkCountry);
-                            }
+                            param.setResult("nox");
                         }
                     });
         } catch (NoSuchMethodError ignored) {
         }
 
-        // Android 13+ replaced TelephonyManager.getLine1Number() with
-        // SubscriptionManager.getPhoneNumber(int) and getPhoneNumber(int, int).
         Class<?> subscriptionManager = XposedHelpers.findClassIfExists(
                 "android.telephony.SubscriptionManager", lpparam.classLoader);
         if (subscriptionManager != null) {
             XC_MethodHook phoneNumberHook = new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
-                    String v = ConfigManager.getPhoneNumber();
-                    if (v != null) param.setResult(v);
+                    param.setResult("nox");
                 }
             };
             try {
@@ -272,3 +239,4 @@ public class TelephonyHooks {
         }
     }
 }
+```
