@@ -11,17 +11,11 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/**
- * Hooks PackageManager to spoof hardware features for Pixel 7 Pro.
- * Reports real device features, hides emulator-specific features.
- */
 public class PackageManagerHooks {
 
     private static final String TAG = "DeviceSpoofLab-PackageManager";
 
-    // Pixel 7 Pro hardware features (return true)
     private static final Set<String> PIXEL_7_PRO_FEATURES = new HashSet<>(Arrays.asList(
-        // Camera
         "android.hardware.camera",
         "android.hardware.camera.autofocus",
         "android.hardware.camera.flash",
@@ -108,7 +102,6 @@ public class PackageManagerHooks {
         "android.software.secure_lock_screen"
     ));
 
-    // Emulator features to deny (return false)
     private static final Set<String> DENIED_FEATURES = new HashSet<>(Arrays.asList(
         "android.hardware.sensor.emulator",
         "goldfish"
@@ -116,7 +109,6 @@ public class PackageManagerHooks {
 
     public static void hook(XC_LoadPackage.LoadPackageParam lpparam) {
         try {
-            // Hook ApplicationPackageManager (the actual implementation)
             Class<?> appPackageManagerClass = XposedHelpers.findClassIfExists(
                 "android.app.ApplicationPackageManager", lpparam.classLoader);
 
@@ -131,7 +123,6 @@ public class PackageManagerHooks {
 
     private static void hookHasSystemFeature(Class<?> pmClass) {
         try {
-            // Hook hasSystemFeature(String)
             XposedHelpers.findAndHookMethod(pmClass, "hasSystemFeature",
                 String.class,
                 new XC_MethodHook() {
@@ -143,7 +134,6 @@ public class PackageManagerHooks {
                             return;
                         }
 
-                        // Deny emulator features
                         for (String denied : DENIED_FEATURES) {
                             if (feature.toLowerCase().contains(denied.toLowerCase())) {
                                 param.setResult(false);
@@ -151,7 +141,6 @@ public class PackageManagerHooks {
                             }
                         }
 
-                        // Report Pixel 7 Pro features as available
                         if (PIXEL_7_PRO_FEATURES.contains(feature)) {
                             param.setResult(true);
                         }
@@ -162,7 +151,6 @@ public class PackageManagerHooks {
         }
 
         try {
-            // Hook hasSystemFeature(String, int) - version-specific
             XposedHelpers.findAndHookMethod(pmClass, "hasSystemFeature",
                 String.class, int.class,
                 new XC_MethodHook() {
@@ -174,7 +162,6 @@ public class PackageManagerHooks {
                             return;
                         }
 
-                        // Deny emulator features
                         for (String denied : DENIED_FEATURES) {
                             if (feature.toLowerCase().contains(denied.toLowerCase())) {
                                 param.setResult(false);
@@ -182,7 +169,6 @@ public class PackageManagerHooks {
                             }
                         }
 
-                        // Report Pixel 7 Pro features as available
                         if (PIXEL_7_PRO_FEATURES.contains(feature)) {
                             param.setResult(true);
                         }
@@ -195,7 +181,6 @@ public class PackageManagerHooks {
 
     private static void hookGetSystemAvailableFeatures(Class<?> pmClass) {
         try {
-            // Hook getSystemAvailableFeatures() - returns FeatureInfo array
             XposedHelpers.findAndHookMethod(pmClass, "getSystemAvailableFeatures",
                 new XC_MethodHook() {
                     @Override
@@ -205,13 +190,11 @@ public class PackageManagerHooks {
                             return;
                         }
 
-                        // Get FeatureInfo class to create properly typed array
                         Class<?> featureInfoClass = features.getClass().getComponentType();
 
                         List<Object> filtered = new ArrayList<>();
                         for (Object feature : features) {
                             try {
-                                // FeatureInfo has 'name' field
                                 String name = (String) XposedHelpers.getObjectField(feature, "name");
                                 if (name != null) {
                                     boolean isDenied = false;
@@ -225,16 +208,13 @@ public class PackageManagerHooks {
                                         filtered.add(feature);
                                     }
                                 } else {
-                                    // Features without name (OpenGL versions, etc.) - keep them
                                     filtered.add(feature);
                                 }
                             } catch (Exception e) {
-                                // Failed to get name, keep the feature
                                 filtered.add(feature);
                             }
                         }
 
-                        // Create properly typed array (FeatureInfo[], not Object[])
                         Object typedArray = java.lang.reflect.Array.newInstance(
                             featureInfoClass, filtered.size());
                         for (int i = 0; i < filtered.size(); i++) {

@@ -6,10 +6,6 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/**
- * Hooks MediaDrm to spoof Widevine device unique ID.
- * Many apps use this for device fingerprinting.
- */
 public class MediaDrmHooks {
 
     private static final String DEVICE_UNIQUE_ID = "deviceUniqueId";
@@ -33,7 +29,8 @@ public class MediaDrmHooks {
                             String propertyName = (String) param.args[0];
 
                             if (DEVICE_UNIQUE_ID.equals(propertyName)) {
-                                param.setResult(ConfigManager.getMediaDrmId());
+                                byte[] v = ConfigManager.getMediaDrmId();
+                                if (v != null) param.setResult(v);
                             }
                         }
                     });

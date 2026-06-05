@@ -1,157 +1,354 @@
 package com.devicespooflab.hooks;
 
 import android.os.Build;
+import android.util.Log;
 
+import com.devicespooflab.hooks.hooks.AccountHooks;
 import com.devicespooflab.hooks.hooks.AdvertisingIdHooks;
 import com.devicespooflab.hooks.hooks.AppSetIdHooks;
+import com.devicespooflab.hooks.hooks.BatteryHooks;
 import com.devicespooflab.hooks.hooks.BuildHooks;
-import com.devicespooflab.hooks.hooks.EmulatorDetectionHooks;
+import com.devicespooflab.hooks.hooks.CameraHooks;
+import com.devicespooflab.hooks.hooks.DisplayHooks;
+import com.devicespooflab.hooks.hooks.EuiccHooks;
 import com.devicespooflab.hooks.hooks.HardwareHooks;
+import com.devicespooflab.hooks.hooks.InputDeviceHooks;
+import com.devicespooflab.hooks.hooks.LocaleHooks;
 import com.devicespooflab.hooks.hooks.MediaDrmHooks;
+import com.devicespooflab.hooks.hooks.NetworkHooks;
+import com.devicespooflab.hooks.hooks.PackageInfoHooks;
 import com.devicespooflab.hooks.hooks.PackageManagerHooks;
+import com.devicespooflab.hooks.hooks.SensorHooks;
 import com.devicespooflab.hooks.hooks.SettingsHooks;
+import com.devicespooflab.hooks.hooks.StorageHooks;
 import com.devicespooflab.hooks.hooks.SystemPropertiesHooks;
 import com.devicespooflab.hooks.hooks.TelephonyHooks;
 import com.devicespooflab.hooks.hooks.WebViewHooks;
 import com.devicespooflab.hooks.utils.ConfigManager;
+import com.devicespooflab.hooks.utils.XposedServiceBridge;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
+import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/**
- * Main entry point for DeviceSpoofLabs-Hooks LSPosed module.
- *
- * STANDALONE MODULE - No Magisk dependency!
- *
- * This module hooks Android APIs to spoof ALL device identifiers and properties,
- * solving the problem where apps read properties from Zygote, bypassing Magisk.
- *
- * What this module spoofs:
- * - System properties (ro.build.*, ro.product.*, etc.) via SystemProperties reflection
- * - All Build.* static fields (FINGERPRINT, MODEL, DEVICE, VERSION.*, etc.)
- * - IMEI, MEID, IMSI, ICCID, Phone number (TelephonyManager)
- * - Google Advertising ID (AdvertisingIdClient)
- * - App Set ID (Android 11+)
- * - MediaDrm device unique ID (Widevine)
- * - ANDROID_ID, GSF ID (Settings.Secure)
- * - WebView User-Agent
- * - Hardware features (PackageManager)
- * - Emulator detection bypass (File.exists)
- *
- * Target Device: Google Pixel 7 Pro, Android 15
- */
 public class MainHook implements IXposedHookLoadPackage {
 
     private static final String TAG = "DeviceSpoofLab";
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
-        // Log that we're loading for this package
-        XposedBridge.log(TAG + ": Loading hooks for " + lpparam.packageName);
-
-        // Initialize config (reads from file or uses embedded defaults)
         try {
             ConfigManager.init();
-            XposedBridge.log(TAG + ": Config initialized successfully");
         } catch (Exception e) {
+            Log.e(TAG, "Failed to init config: " + e.getMessage(), e);
             XposedBridge.log(TAG + ": Failed to init config: " + e.getMessage());
-            e.printStackTrace();
             return;
         }
 
-        // Apply hooks in dependency order
-        // 1. Core system property hooks (CRITICAL - catches reflection-based property reads)
-        // This is SAFE and works for all apps
+        boolean verbose = ConfigManager.isVerboseLoggingEnabled();
+        Log.i(TAG, "handleLoadPackage start pkg=" + lpparam.packageName
+                + " verbose=" + verbose
+                + " imei=" + ConfigManager.getIdentifierValue("imei")
+                + " gaid=" + ConfigManager.getIdentifierValue("gaid"));
+        logInfo(verbose, TAG + ": Loading hooks for " + lpparam.packageName);
+        final int realDeviceSdk = Build.VERSION.SDK_INT;
+
+        // XposedServiceHelper has independent static state in the app loader vs
+        // the module loader. Defer init until Application.attach so the bridge
+        // can bind through the app loader and see the same mListener that
+        // XposedProvider notifies on SEND_BINDER.
+        final boolean isOwnPackage = ConfigManager.isOwnPackageProcess(lpparam.processName)
+                || "com.devicespooflab.hooks".equals(lpparam.packageName);
+
+        final Runnable onBinderReady = new Runnable() {
+            @Override
+            public void run() {
+                if (isOwnPackage) {
+                    // Fallback only: with the module out of its own scope this
+                    // branch never runs (MainActivity publishes directly). It
+                    // survives for users who re-scope the module to itself, e.g.
+                    // on stock LSPosed. The new-API RemotePreferences is
+                    // read-only, so publishing needs the writable SEND_BINDER.
+                    if (!XposedServiceBridge.isServiceWritable()) return;
+                    ConfigManager.publishToRemotePreferences();
+                } else {
+                    boolean loaded = ConfigManager.loadFromRemotePreferences();
+                    if (loaded) {
+                        BuildHooks.refreshStaticFields(lpparam.classLoader);
+                    }
+                    // Vector's read-only RemotePreferences caches a frozen
+                    // snapshot at construction and never fires the change
+                    // listener for daemon writes, so we poll _generation.
+                    installRemoteRefreshLoop(lpparam.classLoader);
+                    Log.i(TAG, "RemotePreferences load=" + loaded
+                            + " imei=" + ConfigManager.getIdentifierValue("imei")
+                            + " gaid=" + ConfigManager.getIdentifierValue("gaid"));
+                }
+            }
+        };
+
         try {
-            SystemPropertiesHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ SystemPropertiesHooks loaded");
-        } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ SystemPropertiesHooks failed: " + e.getMessage());
+            XposedHelpers.findAndHookMethod("android.app.Application",
+                    lpparam.classLoader, "attach",
+                    android.content.Context.class, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                android.content.Context ctx =
+                                        (android.content.Context) param.args[0];
+                                XposedServiceBridge.init(ctx, onBinderReady);
+                                // The own UI process is no longer in scope, so it
+                                // never reaches here; it publishes directly from
+                                // MainActivity via the binder delivered to
+                                // XposedProvider. This path now only serves target
+                                // apps: seed from RemotePreferences when the new-API
+                                // channel is up but config is still empty.
+                                if (!isOwnPackage
+                                        && ConfigManager.getIdentifierValue("imei").isEmpty()
+                                        && XposedServiceBridge.isServiceAvailable()) {
+                                    if (ConfigManager.loadFromRemotePreferences()) {
+                                        BuildHooks.refreshStaticFields(lpparam.classLoader);
+                                    }
+                                }
+                                Log.i(TAG, "After Application.attach pkg=" + lpparam.packageName
+                                        + " imei=" + ConfigManager.getIdentifierValue("imei")
+                                        + " gaid=" + ConfigManager.getIdentifierValue("gaid"));
+                            } catch (Throwable t) {
+                                Log.w(TAG, "Application.attach hook failed: "
+                                        + t.getMessage());
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to hook Application.attach: " + t.getMessage());
         }
 
-        // 2. Build class hooks (only Build.getSerial method)
+        // BuildHooks first so direct Build.* reads pick up spoofed values.
         try {
             BuildHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ BuildHooks loaded");
+            logInfo(verbose, TAG + ": BuildHooks loaded");
         } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ BuildHooks failed: " + e.getMessage());
+            XposedBridge.log(TAG + ": BuildHooks failed: " + e.getMessage());
         }
 
-        // 3. Hardware hooks (CPU cores, RAM, architecture)
+        // Skip SystemProperties / Locale / Display / Native in our own process so
+        // MainActivity (the config editor) reads the real host values instead of
+        // looping back its own spoof.
+        if (!isOwnPackage) {
+            try {
+                SystemPropertiesHooks.hook(lpparam);
+                logInfo(verbose, TAG + ": SystemPropertiesHooks loaded");
+            } catch (Exception e) {
+                XposedBridge.log(TAG + ": SystemPropertiesHooks failed: " + e.getMessage());
+            }
+        } else {
+            logInfo(verbose, TAG + ": SystemPropertiesHooks skipped for module process");
+        }
+
         try {
             HardwareHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ HardwareHooks loaded");
+            logInfo(verbose, TAG + ": HardwareHooks loaded");
         } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ HardwareHooks failed: " + e.getMessage());
+            XposedBridge.log(TAG + ": HardwareHooks failed: " + e.getMessage());
         }
 
-        // 4. Emulator detection hooks (hides emulator files)
-        try {
-            EmulatorDetectionHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ EmulatorDetectionHooks loaded");
-        } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ EmulatorDetectionHooks failed: " + e.getMessage());
-        }
-
-        // 5. Telephony hooks (IMEI, IMSI, ICCID, phone number)
         try {
             TelephonyHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ TelephonyHooks loaded");
+            logInfo(verbose, TAG + ": TelephonyHooks loaded");
         } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ TelephonyHooks failed: " + e.getMessage());
+            XposedBridge.log(TAG + ": TelephonyHooks failed: " + e.getMessage());
         }
 
-        // 6. Settings hooks (ANDROID_ID, GSF_ID)
         try {
             SettingsHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ SettingsHooks loaded");
+            logInfo(verbose, TAG + ": SettingsHooks loaded");
         } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ SettingsHooks failed: " + e.getMessage());
+            XposedBridge.log(TAG + ": SettingsHooks failed: " + e.getMessage());
         }
 
-        // 7. Advertising ID hooks (GAID)
         try {
             AdvertisingIdHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ AdvertisingIdHooks loaded");
+            logInfo(verbose, TAG + ": AdvertisingIdHooks loaded");
         } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ AdvertisingIdHooks failed: " + e.getMessage());
+            XposedBridge.log(TAG + ": AdvertisingIdHooks failed: " + e.getMessage());
         }
 
-        // 8. App Set ID hooks (Android 11+)
-        if (Build.VERSION.SDK_INT >= 30) {
+        if (realDeviceSdk >= 30) {
             try {
-                AppSetIdHooks.hook(lpparam);
-                XposedBridge.log(TAG + ": ✅ AppSetIdHooks loaded");
+                AppSetIdHooks.hook(lpparam, realDeviceSdk);
+                logInfo(verbose, TAG + ": AppSetIdHooks loaded");
             } catch (Exception e) {
-                XposedBridge.log(TAG + ": ❌ AppSetIdHooks failed: " + e.getMessage());
+                XposedBridge.log(TAG + ": AppSetIdHooks failed: " + e.getMessage());
             }
         }
 
-        // 9. MediaDRM hooks (Widevine device ID)
         try {
             MediaDrmHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ MediaDrmHooks loaded");
+            logInfo(verbose, TAG + ": MediaDrmHooks loaded");
         } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ MediaDrmHooks failed: " + e.getMessage());
+            XposedBridge.log(TAG + ": MediaDrmHooks failed: " + e.getMessage());
         }
 
-        // 10. WebView hooks (User-Agent)
         try {
             WebViewHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ WebViewHooks loaded");
+            logInfo(verbose, TAG + ": WebViewHooks loaded");
         } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ WebViewHooks failed: " + e.getMessage());
+            XposedBridge.log(TAG + ": WebViewHooks failed: " + e.getMessage());
         }
 
-        // 11. PackageManager feature hooks (hardware features)
         try {
             PackageManagerHooks.hook(lpparam);
-            XposedBridge.log(TAG + ": ✅ PackageManagerHooks loaded");
+            logInfo(verbose, TAG + ": PackageManagerHooks loaded");
         } catch (Exception e) {
-            XposedBridge.log(TAG + ": ❌ PackageManagerHooks failed: " + e.getMessage());
+            XposedBridge.log(TAG + ": PackageManagerHooks failed: " + e.getMessage());
         }
 
-        XposedBridge.log(TAG + ": 🎉 All hooks initialized for " + lpparam.packageName);
+        try {
+            NetworkHooks.hook(lpparam);
+            logInfo(verbose, TAG + ": NetworkHooks loaded");
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": NetworkHooks failed: " + e.getMessage());
+        }
+
+        if (!isOwnPackage) {
+            try {
+                DisplayHooks.hook(lpparam);
+                logInfo(verbose, TAG + ": DisplayHooks loaded");
+            } catch (Exception e) {
+                XposedBridge.log(TAG + ": DisplayHooks failed: " + e.getMessage());
+            }
+        } else {
+            logInfo(verbose, TAG + ": DisplayHooks skipped for module process");
+        }
+
+        try {
+            SensorHooks.hook(lpparam);
+            logInfo(verbose, TAG + ": SensorHooks loaded");
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": SensorHooks failed: " + e.getMessage());
+        }
+
+        try {
+            CameraHooks.hook(lpparam);
+            logInfo(verbose, TAG + ": CameraHooks loaded");
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": CameraHooks failed: " + e.getMessage());
+        }
+
+        try {
+            StorageHooks.hook(lpparam);
+            logInfo(verbose, TAG + ": StorageHooks loaded");
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": StorageHooks failed: " + e.getMessage());
+        }
+
+        if (!isOwnPackage) {
+            try {
+                LocaleHooks.hook(lpparam);
+                logInfo(verbose, TAG + ": LocaleHooks loaded");
+            } catch (Exception e) {
+                XposedBridge.log(TAG + ": LocaleHooks failed: " + e.getMessage());
+            }
+        } else {
+            logInfo(verbose, TAG + ": LocaleHooks skipped for module process");
+        }
+
+        if (ConfigManager.isHideAccountsEnabled()) {
+            try {
+                AccountHooks.hook(lpparam);
+                logInfo(verbose, TAG + ": AccountHooks loaded");
+            } catch (Exception e) {
+                XposedBridge.log(TAG + ": AccountHooks failed: " + e.getMessage());
+            }
+        } else {
+            logInfo(verbose, TAG + ": AccountHooks skipped (hooks.hide_accounts=0)");
+        }
+
+        try {
+            PackageInfoHooks.hook(lpparam);
+            logInfo(verbose, TAG + ": PackageInfoHooks loaded");
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": PackageInfoHooks failed: " + e.getMessage());
+        }
+
+        try {
+            BatteryHooks.hook(lpparam);
+            logInfo(verbose, TAG + ": BatteryHooks loaded");
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": BatteryHooks failed: " + e.getMessage());
+        }
+
+        if (realDeviceSdk >= 28) {
+            try {
+                EuiccHooks.hook(lpparam, realDeviceSdk);
+                logInfo(verbose, TAG + ": EuiccHooks loaded");
+            } catch (Exception e) {
+                XposedBridge.log(TAG + ": EuiccHooks failed: " + e.getMessage());
+            }
+        }
+
+        try {
+            InputDeviceHooks.hook(lpparam);
+            logInfo(verbose, TAG + ": InputDeviceHooks loaded");
+        } catch (Exception e) {
+            XposedBridge.log(TAG + ": InputDeviceHooks failed: " + e.getMessage());
+        }
+
+        if (!isOwnPackage) {
+            try {
+                boolean ok = NativeHooks.tryInstall(ConfigManager.getAllSpoofedProperties());
+                logInfo(verbose, TAG + (ok
+                        ? ": NativeHooks loaded"
+                        : ": NativeHooks unavailable (Java-only spoofing active)"));
+            } catch (Throwable t) {
+                XposedBridge.log(TAG + ": NativeHooks failed: " + t.getMessage());
+            }
+        } else {
+            logInfo(verbose, TAG + ": NativeHooks skipped for module process");
+        }
+
+        logInfo(verbose, TAG + ": All hooks initialized for " + lpparam.packageName);
+    }
+
+    private static void logInfo(boolean verbose, String message) {
+        if (verbose) {
+            XposedBridge.log(message);
+        }
+    }
+
+    private static final long REFRESH_INTERVAL_MS = 2_000L;
+    private static final java.util.concurrent.atomic.AtomicBoolean sRefreshInstalled =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static android.os.HandlerThread sRefreshThread;
+    private static android.os.Handler sRefreshHandler;
+
+    private static void installRemoteRefreshLoop(final ClassLoader classLoader) {
+        if (!sRefreshInstalled.compareAndSet(false, true)) return;
+        try {
+            sRefreshThread = new android.os.HandlerThread("spoof-refresh",
+                    android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            sRefreshThread.start();
+            sRefreshHandler = new android.os.Handler(sRefreshThread.getLooper());
+            final Runnable tick = new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        ConfigManager.refreshFromRemoteIfNewer(classLoader);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "Remote refresh tick failed: " + t.getMessage());
+                    } finally {
+                        sRefreshHandler.postDelayed(this, REFRESH_INTERVAL_MS);
+                    }
+                }
+            };
+            sRefreshHandler.postDelayed(tick, REFRESH_INTERVAL_MS);
+            Log.i(TAG, "Remote refresh loop installed (interval="
+                    + REFRESH_INTERVAL_MS + "ms)");
+        } catch (Throwable t) {
+            sRefreshInstalled.set(false);
+            Log.w(TAG, "installRemoteRefreshLoop failed: " + t.getMessage());
+        }
     }
 }

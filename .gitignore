@@ -9,6 +9,8 @@
 # Gradle
 .gradle/
 local.properties
+**/.cxx/
+**/.externalNativeBuild/
 
 # IDE
 .idea/

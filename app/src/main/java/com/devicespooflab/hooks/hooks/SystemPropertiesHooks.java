@@ -2,38 +2,32 @@ package com.devicespooflab.hooks.hooks;
 
 import com.devicespooflab.hooks.utils.ConfigManager;
 
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-/**
- * Hooks android.os.SystemProperties to intercept ALL system property reads.
- * This is the CRITICAL hook that solves the Zygote bypass problem.
- *
- * Apps can read properties via reflection:
- *   Class.forName("android.os.SystemProperties").getMethod("get", String.class).invoke(null, "ro.build.fingerprint")
- *
- * This bypasses Magisk's resetprop. We hook at the Java API level to catch these calls.
- */
 public class SystemPropertiesHooks {
 
     private static final String TAG = "DeviceSpoofLab-SystemProps";
     private static final String SYSTEM_PROPERTIES_CLASS = "android.os.SystemProperties";
+    private static final Set<Class<?>> HOOKED_CLASSES =
+            Collections.newSetFromMap(new ConcurrentHashMap<Class<?>, Boolean>());
 
     public static void hook(XC_LoadPackage.LoadPackageParam lpparam) {
         try {
-            // Hook SystemProperties in app's classloader
             hookSystemProperties(lpparam.classLoader);
 
-            // Also try to hook in system classloader (for apps that use it)
             try {
                 ClassLoader systemClassLoader = ClassLoader.getSystemClassLoader();
                 if (systemClassLoader != null && systemClassLoader != lpparam.classLoader) {
                     hookSystemProperties(systemClassLoader);
                 }
-            } catch (Exception e) {
-                // System classloader hook failed, that's okay
+            } catch (Exception ignored) {
             }
         } catch (Exception e) {
             XposedBridge.log(TAG + ": Failed to hook SystemProperties: " + e.getMessage());
@@ -44,6 +38,9 @@ public class SystemPropertiesHooks {
         Class<?> sysPropClass = XposedHelpers.findClassIfExists(SYSTEM_PROPERTIES_CLASS, classLoader);
 
         if (sysPropClass == null) {
+            return;
+        }
+        if (!HOOKED_CLASSES.add(sysPropClass)) {
             return;
         }
 
